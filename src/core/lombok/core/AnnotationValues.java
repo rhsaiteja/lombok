@@ -208,6 +208,17 @@ public class AnnotationValues<A extends Annotation> {
 		if (guess instanceof Boolean) return ((Boolean) guess).booleanValue();
 		return getDefaultIf(methodName, false);
 	}
+
+	public int getAsInt(String methodName) {
+		AnnotationValue v = values.get(methodName);
+		if (v == null || v.valueGuesses.size() != 1) {
+			return getDefaultIf(methodName, 4);
+		}
+
+		Object guess = guessToType(v.valueGuesses.get(0), int.class, v, 0);
+		if (guess instanceof Integer) return (Integer) guess;
+		return getDefaultIf(methodName, 4);
+	}
 	
 	@SuppressWarnings("unchecked")
 	public <T> T getDefaultIf(String methodName, T defaultValue) {

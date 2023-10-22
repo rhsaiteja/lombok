@@ -119,4 +119,12 @@ public @interface ToString {
 		 */
 		String name() default "";
 	}
+
+	@Target({ElementType.FIELD, ElementType.METHOD})
+	@Retention(RetentionPolicy.SOURCE)
+	public @interface Mask {
+
+		int prefixUnmaskLength() default 4;
+		int suffixUnmaskLength() default 4;
+	}
 }

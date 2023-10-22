@@ -27,6 +27,7 @@ import static lombok.javac.Javac.*;
 
 import java.util.Collection;
 
+import com.sun.tools.javac.util.Name;
 import lombok.ConfigurationKeys;
 import lombok.ToString;
 import lombok.core.AnnotationValues;
@@ -218,9 +219,12 @@ public class HandleToString extends JavacAnnotationHandler<ToString> {
 				JCExpression tsMethod = chainDots(typeNode, "java", "util", "Arrays", fieldIsObjectArray ? "deepToString" : "toString");
 				expr = maker.Apply(List.<JCExpression>nil(), tsMethod, List.<JCExpression>of(memberAccessor));
 			} else expr = memberAccessor;
-			
+
+			AnnotationValues<ToString.Mask> maskAnnotationValues = memberNode.findAnnotation(ToString.Mask.class);
 			if (first) {
-				current = maker.Binary(CTC_PLUS, current, expr);
+				current = maker.Binary(CTC_PLUS, current,
+						maskAnnotationValues!=null? getMaskedExpr(maker, typeNode, expr, maskAnnotationValues) : expr
+						);
 				first = false;
 				continue;
 			}
@@ -232,22 +236,49 @@ public class HandleToString extends JavacAnnotationHandler<ToString> {
 			} else {
 				current = maker.Binary(CTC_PLUS, current, maker.Literal(infix));
 			}
-			
-			current = maker.Binary(CTC_PLUS, current, expr);
+
+			current = maker.Binary(CTC_PLUS, current,
+					maskAnnotationValues!=null? getMaskedExpr(maker, typeNode, expr, maskAnnotationValues) : expr
+			);
 		}
 		
 		if (!first) current = maker.Binary(CTC_PLUS, current, maker.Literal(suffix));
 		
 		JCStatement returnStatement = maker.Return(current);
 		
-		JCBlock body = maker.Block(0, List.of(returnStatement));
+		JCBlock body = maker.Block(20, List.of(returnStatement));
 		
 		JCMethodDecl methodDef = maker.MethodDef(mods, typeNode.toName("toString"), returnType,
 			List.<JCTypeParameter>nil(), List.<JCVariableDecl>nil(), List.<JCExpression>nil(), body, null);
 		createRelevantNonNullAnnotation(typeNode, methodDef);
 		return recursiveSetGeneratedBy(methodDef, source);
 	}
-	
+
+	private static JCExpression getMaskedExpr(JavacTreeMaker maker, JavacNode typeNode, JCExpression expr, AnnotationValues<ToString.Mask> maskAnnotationValues) {
+		JCMethodInvocation memberToString = maker.Apply(List.of(genJavaLangTypeRef(typeNode, "Object")),
+				maker.Select(genJavaLangTypeRef(typeNode, "String"), typeNode.toName("valueOf")),
+				List.of(expr));
+
+		JCMethodInvocation prefix = maker.Apply(List.of(genJavaLangTypeRef(typeNode, "Integer"), genJavaLangTypeRef(typeNode, "Integer")),
+				maker.Select(memberToString, typeNode.toName("substring")),
+					List.<JCExpression>of(maker.Literal(0), maker.Literal(maskAnnotationValues.getAsInt("prefixUnmaskLength"))));
+
+		JCMethodInvocation stringLength = maker.Apply(List.<JCExpression>nil(), maker.Select(memberToString, typeNode.toName("length")), List.<JCExpression>nil());
+
+		JCMethodInvocation suffix = maker.Apply(List.of(genJavaLangTypeRef(typeNode, "Integer")),
+				maker.Select(memberToString, typeNode.toName("substring")),
+				List.<JCExpression>of(maker.Binary(CTC_MINUS, stringLength, maker.Literal(maskAnnotationValues.getAsInt("suffixUnmaskLength")))));
+
+		JCExpression maskedString = maker.Binary(CTC_PLUS, prefix, maker.Binary(CTC_PLUS, maker.Literal("********"), suffix));
+
+		return maker.Conditional(
+				maker.Binary(CTC_GREATER_THAN, stringLength, maker.Binary(CTC_PLUS, maker.Literal(maskAnnotationValues.getAsInt("prefixUnmaskLength")),maker.Literal(maskAnnotationValues.getAsInt("suffixUnmaskLength")))),
+				maskedString,
+				memberToString
+		);
+
+	}
+
 	public static String getTypeName(JavacNode typeNode) {
 		String typeName = typeNode.getName();
 		JavacNode upType = typeNode.up();
